@@ -205,8 +205,7 @@ mod baby_tests {
         let sk = PrivateKey::<Bn256>(rng.gen());
         let vk = PublicKey::from_private(&sk, p_g, params);
 
-        let a = &expected[0];
-        let msg1 = &fr_to_be_bytes_padding(a);
+        let msg1 = &fr_to_be_bytes_padding(&expected[0]);
 
         let max_message_size: usize = 32;
 
