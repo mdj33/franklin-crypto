@@ -483,7 +483,7 @@ impl<E: RescueEngine + JubjubEngine> PrivateKey<E> {
     }
 
 }
-
+use num_bigint::BigUint;
 impl<E: JubjubEngine> PublicKey<E> {
     pub fn from_private(privkey: &PrivateKey<E>, p_g: FixedGenerators, params: &E::Params) -> Self {
         let res = params.generator(p_g).mul(privkey.0, params).into();
@@ -566,9 +566,17 @@ impl<E: JubjubEngine> PublicKey<E> {
         max_message_size: usize,
     ) -> bool {
         // c = M
+        let c_v = BigUint::from_bytes_le(msg);
+        println!("msg.c={:?}",c_v.to_str_radix(16));
+        let sig_p = sig.r.into_xy();
+        println!("sig.r x={:?},y={:?}",sig_p.0,sig_p.1);
+        println!("sig.s={}",sig.s.into_repr());
 
-        assert!(msg.len() <= max_message_size);
-        assert!(max_message_size * 8 <= E::Fs::CAPACITY as usize);
+        let pk = self.0.into_xy();
+        println!("pk.x={:?},y={:?}",pk.0,pk.1);
+
+        // assert!(msg.len() <= max_message_size);
+        // assert!(max_message_size * 8 <= E::Fs::CAPACITY as usize);
         // assert!(max_message_size * 8 <= E::Fs::Repr::len());
         // we also pad message to max size
 
@@ -578,17 +586,19 @@ impl<E: JubjubEngine> PublicKey<E> {
 
         let c = E::Fs::to_uniform_32(msg_padded.as_ref());
 
+
+
         // this one is for a simple sanity check. In application purposes the pk will always be in a right group 
-        let order_check_pk = self.0.mul(E::Fs::char(), params);
-        if !order_check_pk.eq(&Point::zero()) {
-            return false;
-        }
+        // let order_check_pk = self.0.mul(E::Fs::char(), params);
+        // if !order_check_pk.eq(&Point::zero()) {
+        //     return false;
+        // }
 
         // r is input from user, so always check it!
-        let order_check_r = sig.r.mul(E::Fs::char(), params);
-        if !order_check_r.eq(&Point::zero()) {
-            return false;
-        }
+        // let order_check_r = sig.r.mul(E::Fs::char(), params);
+        // if !order_check_r.eq(&Point::zero()) {
+        //     return false;
+        // }
 
         // 0 = h_G(-S . P_G + R + c . vk)
         // self.0.mul(c, params).add(&sig.r, params).add(
@@ -598,6 +608,14 @@ impl<E: JubjubEngine> PublicKey<E> {
 
 
         // 0 = -S . P_G + R + c . vk that requires all points to be in the same group
+        // let lhs = self.0.mul(c, params).add(&sig.r, params);
+        // let rhs = params.generator(p_g).mul(sig.s, params);
+        // let lp = lhs.into_xy();
+        // let rp = rhs.into_xy();
+        // println!("lp x={:?},y={:?}",lp.0,lp.1);
+        // println!("rp x={:?},y={:?}",rp.0,rp.1);
+
+
         self.0.mul(c, params).add(&sig.r, params).add(
             &params.generator(p_g).mul(sig.s, params).negate().into(),
             params
@@ -1075,6 +1093,113 @@ mod baby_tests {
             assert!(!rvk.verify_for_raw_message(msg2, &sig1, p_g, params, max_message_size));
         }
     }
+
+    use num_bigint::BigUint;
+    use std::str::FromStr;
+    // use bellman::pairing::ff::{
+    // BitIterator, Field, PrimeField, PrimeFieldRepr};
+    use bellman::pairing::bn256::{
+        Fr
+    };
+    #[test]
+    fn random_signatures_for_raw_message_1() {
+        let rng = &mut thread_rng();
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+
+        for _ in 0..1 {
+            // let sk = PrivateKey::<Bn256>(rng.gen());
+            // let vk = PublicKey::from_private(&sk, p_g, params);
+            //x=Fr(0x210add7128da8f626145394a55df3e022f3994164c31803b3c8ac18edc91730b),
+            //y=Fr(0x2917e2b130d3c0b999870048591eff578da75c0b5fb1c4c5c99a7fd9cbd3cb42)
+            //prikey: 5510911e24cade90e206aabb9f7a03ecdea26be4a63c231fabff27ace91471e
+            let sk = PrivateKey::<Bn256>(Fs::from_str("2404741453031717496073603482120421489721401632844576158535519006774898280222").unwrap());
+            let vk = PublicKey::from_private(&sk, p_g, params);
+            let v = vk.0.into_xy();
+            // println!("x={:?},y={:?}",v.0,v.1);
+
+            let c = BigUint::parse_bytes(b"4e28bf14bd706d49d3aa8f36bce90f1d28261af05a1241da0af65322c870ef1a",16).unwrap();
+            let msg1 = c.to_bytes_le();
+            let max_message_size: usize = 256;
+
+            let sig_rx = BigUint::parse_bytes(
+                b"25138ffca8b4205696e09be872fc38b8c0c7662368d76e43741cda93408fc574",
+                // b"12d01c5a942d1c77effd46d65a4b9eb6291ec8aa7b850f7c293195776e8ba4ca",
+                16,
+            ).unwrap();
+            let sig_ry = BigUint::parse_bytes(
+                b"0cf7b0dbf6a4d272a1ae55c60e6a44d6d0e11fbd1ba01f83a10ce849e39b4863",
+                // b"1aab06badadc86268edc4a2bd0ca7613fc3d8d7768e190635972e8b27af0c279",
+                16,
+            ).unwrap();
+
+            let x = Fr::from_str(&sig_rx.to_string()).unwrap();
+            let y = Fr::from_str(&sig_ry.to_string()).unwrap();
+            let r = edwards::Point::from_xy(x,y,params).unwrap();
+            let sig_s = BigUint::parse_bytes(
+                b"03d6aa18622b313b1dc4aa7ff3193a8a7800d101d5f2006b0a24bc65fd5a36bd",
+                // b"03693394cd7d28e64bc11bef346c81c54d5a12c88d2d272b3d969139e5f31002",
+                16,
+            ).unwrap();
+            // let rs = Fs::from_str("1736217771868420687662910258808485945790988767675191054632216377236276262589").unwrap();
+            let rs = Fs::from_str(&sig_s.to_string()).unwrap();
+            let sig = &Signature::<Bn256> {
+                r,
+                s:rs,
+            };
+            assert!(vk.verify_for_raw_message(&msg1, sig, p_g, params, max_message_size));
+        }
+    }
+
+    #[test]
+    fn random_signatures_for_raw_message_2() {
+        let rng = &mut thread_rng();
+        let p_g = FixedGenerators::SpendingKeyGenerator;
+        let params = &AltJubjubBn256::new();
+
+        for _ in 0..1 {
+            // let sk = PrivateKey::<Bn256>(rng.gen());
+            // let vk = PublicKey::from_private(&sk, p_g, params);
+            // let sk = PrivateKey::<Bn256>(Fs::from_str("2404741453031717496073603482120421489721401632844576158535519006774898280222").unwrap());
+            // let vk = PublicKey::from_private(&sk, p_g, params);
+
+            //252e5567f8d2ec21093deb668196ebd676767e5414d167a09223d72a354e5b45
+            let px = Fr::from_str("16817439814078862731222614495669979298429670550194704541140145594989571627845").unwrap();
+            //0x2e91ef67e1f4bad22d03af787175c1ddeeca18c59451421a3958c6b64a376ec4
+            let py = Fr::from_str("21064236177270450867416892226345833627531683953667159312157247043441922633412").unwrap();
+            let pk_point = edwards::Point::from_xy(px,py,params).unwrap();
+            let vk = PublicKey::<Bn256>(pk_point);
+            // let v = vk.0.into_xy();
+            // println!("pk x={:?},y={:?}",v.0,v.1);
+
+
+            let msg = "12183188902842291436925829409440956230535359139686694837527706100765491669070";
+
+            let c = BigUint::from_str(msg).unwrap();
+            let msg1 = c.to_bytes_le();
+            // let sig = sig_s.to_bytes_le();
+            let max_message_size: usize = 256;
+
+            //03871ac3f0ae73813b0a4bbaa778bd0ea3d43d75297cd1a2d3a8b98e053cf2af
+            let rx = "1595647627436212756413023759906065832327457526761125535952483594095470375599";
+            //1054763a3bdce693bb5f58064092cb5d3f45473eda5f1d0ead04e9e3a7b278f7
+            let ry = "7386236706823772961098242746476332333347496795564465745136539265135243589879";
+
+            let x = Fr::from_str(rx).unwrap();
+            let y = Fr::from_str(ry).unwrap();
+            // Fr::from_str();
+            let a = edwards::Point::from_xy(x,y,params).unwrap();
+            let ss = Fs::from_str("760414664615846567287977379644619164343552866248912558409257763292500819717").unwrap();
+            let s = &Signature::<Bn256> {
+                r:a,
+                s:ss,
+            };
+
+
+            assert!(vk.verify_for_raw_message(&msg1, s, p_g, params, max_message_size));
+        }
+    }
+
 
     #[test]
     fn random_signatures_for_sha256_musig() {
